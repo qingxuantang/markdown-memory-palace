@@ -66,6 +66,31 @@ The user will almost never type `/mp <subcommand>` literally. Instead, they will
 
 ---
 
+## Replacing Claude Code's built-in memory
+
+Memory Palace is designed as a **complete replacement** for Claude Code's built-in flat memory system (`MEMORY.md` + `memory/*.md` files with auto-memory frontmatter). When installed:
+
+1. **All memory writes** go through Palace wings/rooms/halls — never to `MEMORY.md` or flat files in `memory/` root.
+2. **All memory reads** search Palace first (L1 layer → wings → drawers).
+3. The built-in auto-memory system is disabled via two mechanisms:
+   - **CLAUDE.md rules** (`templates/claude-md-rule.md`) — prompt-layer instructions forbidding flat memory writes
+   - **PreToolUse hook** (`hooks/block-flat-memory.sh`) — code-layer enforcement that denies Write/Edit to `MEMORY.md` and flat memory files
+
+This dual-layer approach is necessary because CLAUDE.md rules alone can be forgotten after repeated context compaction. The hook provides a hard gate at the tool-call level.
+
+**What the hook allows through:**
+- L1 layer files: `user.md`, `project.md`, `reference.md`, `feedback.md`, `timeline.md`
+- Palace config: `.palace-config.yaml`, `_closet.md`
+- Everything under `wings/` and `audits/`
+
+**What the hook blocks:**
+- `MEMORY.md` (the built-in memory index)
+- Any `.md` file directly in `memory/` root that isn't an L1 file (e.g. `user_role.md`, `feedback_testing.md`)
+
+The `init` subcommand handles installing these overrides. See §1 for details.
+
+---
+
 ## Global conventions
 
 ### Path resolution
@@ -260,12 +285,33 @@ If the user invokes a subcommand not listed here, say so and offer the closest m
 
 6. **Write `timeline.md`** with an empty header.
 
-7. **Print summary**:
+7. **Check memory override setup**:
+
+   The palace must be the sole memory backend. Verify and install the two override layers:
+
+   **a. CLAUDE.md rule** — check both `~/CLAUDE.md` and `~/.claude/CLAUDE.md` for the `memory-palace-override` marker:
+   ```bash
+   grep -q 'memory-palace-override' ~/CLAUDE.md 2>/dev/null
+   grep -q 'memory-palace-override' ~/.claude/CLAUDE.md 2>/dev/null
+   ```
+   If missing from either file, append the rule from `templates/claude-md-rule.md`, replacing `PALACE_PATH_PLACEHOLDER` with the actual `${PALACE_ROOT}` path.
+
+   **b. block-flat-memory hook** — check if `~/block-flat-memory.sh` exists and is registered in `~/.claude/settings.json` under `hooks.PreToolUse`:
+   ```bash
+   test -f ~/block-flat-memory.sh
+   grep -q 'block-flat-memory' ~/.claude/settings.json 2>/dev/null
+   ```
+   If missing, copy from the skill's `hooks/block-flat-memory.sh` (two levels up from the skill dir: `../../hooks/block-flat-memory.sh`), make it executable, and register it in settings.json.
+
+   If both are already in place, print `✓ Memory override already configured`. Otherwise print what was installed.
+
+8. **Print summary**:
    ```
    ✓ Initialized palace at ${PALACE_ROOT}
      - 4 index files (user, project, reference, feedback)
      - 1 timeline
      - 0 wings
+     - Memory override: CLAUDE.md rule ✓, block-flat-memory hook ✓
    Next: `/mp remember <text>` to store your first memory.
    ```
 
@@ -743,6 +789,7 @@ This export is the **portability guarantee**: any markdown-aware system (includi
 6. **Don't write into other Claude Code config dirs** — only `${PALACE_ROOT}`.
 7. **Don't strip or rewrite user's exact words** when storing as a drawer — paraphrase only in the `summary` field.
 8. **Don't use `sed -i` on Windows** — it behaves differently. Read + Write or Edit instead.
+9. **Don't write to Claude Code's built-in flat memory** — never create/edit `MEMORY.md` or flat `.md` files in `memory/` root. All memory goes through Palace wings/rooms. The `block-flat-memory.sh` hook enforces this at the tool level.
 
 ---
 
